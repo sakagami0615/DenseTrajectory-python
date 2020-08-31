@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+.conda/
+.devcontainer/
+.vscode/
+.vscode-server/
+.bash_history
+.python_history
+.pylint.d/
+.local/
+.jupyter/
