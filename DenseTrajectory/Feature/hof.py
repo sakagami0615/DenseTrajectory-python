@@ -14,5 +14,5 @@ class HofFeature:
 		x_flow, y_flow = cv2.split(flow)
 		return None
 	
-	def Extract(self, desc, point):
+	def Extract(self, integral, point):
 		return None

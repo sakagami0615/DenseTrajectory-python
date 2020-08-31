@@ -2,7 +2,7 @@ import cv2
 import numpy
 
 
-class PyramidImage:
+class PyramidImageCreator:
 
 	def __init__(self, image_shape, min_size, scale_stride, scale_num):
 		row = image_shape[0]

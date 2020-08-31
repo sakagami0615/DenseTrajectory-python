@@ -16,5 +16,5 @@ class HogFeature:
 		mag, ang = cv2.cartToPolar(x_edge, y_edge)
 		return None
 	
-	def Extract(self, desc, point):
+	def Extract(self, integral, point):
 		return None

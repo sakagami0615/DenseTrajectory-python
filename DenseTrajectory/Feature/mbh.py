@@ -19,5 +19,5 @@ class MbhFeature:
 
 		return None, None
 	
-	def Extract(self, desc, point):
+	def Extract(self, integral, point):
 		return None

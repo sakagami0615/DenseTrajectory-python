@@ -4,6 +4,7 @@ import numpy
 class Track:
 	def __init__(self, init_point, track_length, hog_dim, hof_dim, mbhx_dim, mbhy_dim):
 		self.track_num = 0
+		self.track_length = track_length
 		self.hog_descs = numpy.empty((track_length, hog_dim))
 		self.hof_descs = numpy.empty((track_length, hof_dim))
 		self.mbhx_descs = numpy.empty((track_length, mbhx_dim))
@@ -13,7 +14,7 @@ class Track:
 		self.points[self.track_num,:] = init_point
 	
 	def AddPoint(self, point):
-		self.points[self.track_num,:] = point
+		self.points[self.track_num + 1,:] = point
 		self.track_num += 1
 	
 	def ResistDescriptor(self, hog_desc, hof_desc, mbhx_desc, mbhy_desc):
@@ -21,7 +22,11 @@ class Track:
 		self.hof_descs[self.track_num,:] = hof_desc
 		self.mbhx_descs[self.track_num,:] = mbhx_desc
 		self.mbhy_descs[self.track_num,:] = mbhy_desc
-		
+	
+	def CheckEnable(self):
+		if self.track_length > self.track_num:
+			return True
+		return False
 
 
 class TrackList:
