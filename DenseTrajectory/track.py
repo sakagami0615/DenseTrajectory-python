@@ -14,8 +14,9 @@ class Track:
 		self.points[self.track_num,:] = init_point
 	
 	def AddPoint(self, point):
-		self.points[self.track_num + 1,:] = point
 		self.track_num += 1
+		self.points[self.track_num,:] = point
+		
 	
 	def ResistDescriptor(self, hog_desc, hof_desc, mbhx_desc, mbhy_desc):
 		self.hog_descs[self.track_num,:] = hog_desc
