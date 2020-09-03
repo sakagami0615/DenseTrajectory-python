@@ -17,4 +17,5 @@ class HogFeature:
 		return None
 	
 	def Extract(self, integral, point):
-		return None
+		import numpy
+		return numpy.zeros((1, self.DIM))

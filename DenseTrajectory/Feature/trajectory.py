@@ -3,7 +3,7 @@ import cv2
 
 class TrajectoryFeature:
 	def __init__(self):
-		pass
+		self.DIM = 2
 	
 	def Extract(self, flow, point, scale):
 		x_pos = int(round(point[0]))
