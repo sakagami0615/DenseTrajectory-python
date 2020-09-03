@@ -193,8 +193,8 @@ class DenseTrajectory:
 
 
 	def __UnionPoint(self, prev_points_1, curr_points_1, prev_points_2, curr_points_2):
-		SPEED_STACK.TimerBegin('__UnionPoint')
 		# Combine feature points vertically
+		SPEED_STACK.TimerBegin('__UnionPoint')
 		union_prev_points = numpy.vstack([prev_points_1, prev_points_2])
 		union_curr_points = numpy.vstack([curr_points_1, curr_points_2])
 		SPEED_STACK.TimerEnd('__UnionPoint')
@@ -217,8 +217,9 @@ class DenseTrajectory:
 		print('width:{}, height:{}, fps:{}, frame:{}'.format(width, height, frame_rate, frame_size))
 		
 		# Preparation Video Writer
-		fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-		writer = cv2.VideoWriter('ResultData/out.mp4', fourcc, frame_rate, (width, height))
+		if self.TRJ_PARAM.DRAW_TRACK_FLG:
+			fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+			writer = cv2.VideoWriter('ResultData/out.mp4', fourcc, frame_rate, (width, height))
 
 		# Create Pyramid Image Generator
 		pyr_img_creator = PyramidImageCreator((height, width), self.PYRAMID_PARAM.MIN_SIZE,
@@ -288,68 +289,57 @@ class DenseTrajectory:
 			pyr_flow_warp = [self.flow_create.ExtractFlow(prev, curr) for (prev, curr) in zip(prev_pyr_gray_warp_frame, curr_pyr_gray_frame)]
 			SPEED_STACK.TimerEnd('flow_create.ExtractFlow')
 			
-			scale = 1
-			for (prev_gray_frame, flow, flow_warp, track_list) in zip(curr_pyr_gray_frame, pyr_flow, pyr_flow_warp, pyr_track_list):
-
-				width = prev_gray_frame.shape[0]
-				height = prev_gray_frame.shape[1]
-
+			# Add track points
+			for (image_size, flow, track_list) in zip(pyr_img_creator.image_sizes, pyr_flow, pyr_track_list):
 				if track_list.tracks:
 					prev_pts = numpy.array([track.points[track.track_num,:] for track in track_list.tracks])
 
 					# Calcurate track points
 					index = numpy.round(numpy.copy(prev_pts)).astype(numpy.int64)
 					index[:,0] = numpy.clip(index[:,0], 0, None)
-					index[:,0] = numpy.clip(index[:,0], None, width - 1)
+					index[:,0] = numpy.clip(index[:,0], None, image_size[1] - 1)
 					index[:,1] = numpy.clip(index[:,1], 0, None)
-					index[:,1] = numpy.clip(index[:,1], None, height - 1)
+					index[:,1] = numpy.clip(index[:,1], None, image_size[0] - 1)
 					track_pts = prev_pts + flow[index[:,0], index[:,1]]
 					
 					# Remove points outside the range of frame
 					SPEED_STACK.TimerBegin('track_list.RemoveTrack')
-					enable_track_flg = ((track_pts[:,0] > 0) & (track_pts[:,0] < width - 1) & (track_pts[:,1] > 0) & (track_pts[:,1] < height - 1))
+					enable_track_flg = ((track_pts[:,0] > 0) & (track_pts[:,0] < image_size[1] - 1) & (track_pts[:,1] > 0) & (track_pts[:,1] < image_size[0] - 1))
 					enable_track_pts = track_pts[enable_track_flg]
 					track_list.RemoveTrack(enable_track_flg)
 					SPEED_STACK.TimerEnd('track_list.RemoveTrack')
 
-					# Compute feature description
-					hog_integral = self.hog_create.Compute(prev_gray_frame)
-					hof_integral = self.hof_create.Compute(flow_warp)
-					mbhx_integral, mbhy_integral = self.mbh_create.Compute(flow_warp)
-
-					# Extract features
-					hog_descs = self.hog_create.Extract(hog_integral, enable_track_pts)
-					hof_descs = self.hof_create.Extract(hof_integral, enable_track_pts)
-					mbhx_descs = self.mbh_create.Extract(mbhx_integral, enable_track_pts)
-					mbhy_descs = self.mbh_create.Extract(mbhy_integral, enable_track_pts)
-					#TODO:特徴抽出処理を実装したらコメント解除する
-					#[track.ResistDescriptor(hog_descs[idx,:] ,hof_descs[idx,:] ,mbhx_descs[idx,:] ,mbhy_descs[idx,:]) for (idx, track) in enumerate(track_list.tracks)]
-					
 					# Tracking points store
 					SPEED_STACK.TimerBegin('track.AddPoint')
 					[track.AddPoint(enable_track_pts[idx,:]) for (idx, track) in enumerate(track_list.tracks)]
 					SPEED_STACK.TimerEnd('track.AddPoint')
 					
-					#TODO:RemoveTrackを実施する前に描画するのが正しいが、コードがいまいちのためリファクタを実施する
-					"""
-					if scale==1:
-						# Draw Tracking points
-						SPEED_STACK.TimerBegin('__DrawTrack')
-						self.__DrawTrack(capture_frame, track_list, pyr_img_creator.image_scales[0])
-						SPEED_STACK.TimerEnd('__DrawTrack')
-					scale = scale + 1
-					#"""
-
-					continue_track_flg = [track.CheckEnable() for track in track_list.tracks]
-					track_list.RemoveTrack(continue_track_flg)
-
-					# TODO:下記に特徴抽出したデータの保管処理を
-
-
 			# Draw Tracking points
 			SPEED_STACK.TimerBegin('__DrawTrack')
-			self.__DrawTrack(capture_frame, pyr_track_list[0], pyr_img_creator.image_scales[0])
+			if self.TRJ_PARAM.DRAW_TRACK_FLG:
+				self.__DrawTrack(capture_frame, pyr_track_list[0], pyr_img_creator.image_scales[0])
 			SPEED_STACK.TimerEnd('__DrawTrack')
+
+			# Extract feature descriptor
+			for (prev_gray_frame, flow_warp, track_list) in zip(curr_pyr_gray_frame, pyr_flow_warp, pyr_track_list):
+				# Compute feature description
+				hog_integral = self.hog_create.Compute(prev_gray_frame)
+				hof_integral = self.hof_create.Compute(flow_warp)
+				mbhx_integral, mbhy_integral = self.mbh_create.Compute(flow_warp)
+
+				# Extract features
+				hog_descs = self.hog_create.Extract(hog_integral, enable_track_pts)
+				hof_descs = self.hof_create.Extract(hof_integral, enable_track_pts)
+				mbhx_descs = self.mbh_create.Extract(mbhx_integral, enable_track_pts)
+				mbhy_descs = self.mbh_create.Extract(mbhy_integral, enable_track_pts)
+				#TODO:特徴抽出処理を実装したらコメント解除する
+				#[track.ResistDescriptor(hog_descs[idx,:] ,hof_descs[idx,:] ,mbhx_descs[idx,:] ,mbhy_descs[idx,:]) for (idx, track) in enumerate(track_list.tracks)]
+				
+				continue_track_flg = [track.CheckEnable() for track in track_list.tracks]
+				track_list.RemoveTrack(continue_track_flg)
+
+				# TODO:下記に特徴抽出したデータの保管処理を
+
 
 			# store new feature points
 			SPEED_STACK.TimerBegin('track_list.ResistTrack')
@@ -364,7 +354,8 @@ class DenseTrajectory:
 			#flow_img = self.flow_create.DrawFlow(capture_frame, pyr_flow_warp[0])
 			#flow_img = self.flow_create.DrawFlow(capture_frame, pyr_flow[0])
 			#capture_frame = numpy.copy(flow_img)
-			writer.write(capture_frame)
+			if self.TRJ_PARAM.DRAW_TRACK_FLG:
+				writer.write(capture_frame)
 
 
 			def keypoints_deepcopy(f):

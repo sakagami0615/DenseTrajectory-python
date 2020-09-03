@@ -9,6 +9,7 @@ class DenseSampleParameter:
 
 class TrajectoryParameter:
 	TRACK_LENGTH = 15
+	DRAW_TRACK_FLG = True
 
 class FlowKeypointParameter:
 	MAX_COUNT = 1000

@@ -19,10 +19,10 @@ class Track:
 		
 	
 	def ResistDescriptor(self, hog_desc, hof_desc, mbhx_desc, mbhy_desc):
-		self.hog_descs[self.track_num,:] = hog_desc
-		self.hof_descs[self.track_num,:] = hof_desc
-		self.mbhx_descs[self.track_num,:] = mbhx_desc
-		self.mbhy_descs[self.track_num,:] = mbhy_desc
+		self.hog_descs[self.track_num - 1,:] = hog_desc
+		self.hof_descs[self.track_num - 1,:] = hof_desc
+		self.mbhx_descs[self.track_num - 1,:] = mbhx_desc
+		self.mbhy_descs[self.track_num - 1,:] = mbhy_desc
 	
 	def CheckEnable(self):
 		if self.track_length > self.track_num:
