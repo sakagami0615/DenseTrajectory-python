@@ -66,3 +66,15 @@ class HofFeature:
 
 		feature_normalize = numpy.sqrt(feature/numpy.sum(feature))
 		return feature_normalize
+
+	
+	def Normalize(self, feature):
+		split_features = numpy.split(feature, self.T_CELL_NUM)
+
+		feature = [numpy.sum(split_feature, axis=0) for split_feature in split_features]
+		feature = numpy.array(feature).reshape(-1)
+		
+		normalize = numpy.floor(feature.shape[0]/self.T_CELL_NUM)
+		feature_normalize = feature/normalize
+
+		return feature_normalize

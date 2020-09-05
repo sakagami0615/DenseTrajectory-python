@@ -1,9 +1,9 @@
 import os
 import sys
 import cv2
-import math
 import numpy
 import copy
+import itertools
 from tqdm import tqdm
 from .pyramid import PyramidImageCreator
 from .track import TrackList
@@ -21,7 +21,7 @@ SPEED_STACK = SpeedStack()
 
 
 class DenseTrajectory:
-	
+
 	def __init__(self):
 		# Create parameter object
 		self.DENSE_SAMPLE_PARAM = param.DenseSampleParameter()
@@ -51,7 +51,7 @@ class DenseTrajectory:
 				line_end_idxs = (numpy.array(range(track_pts.shape[0] - 1)) + 1).tolist()
 				line_begin_pts = [(track_pts[i][1], track_pts[i][0]) for i in line_begin_idxs]
 				line_end_pts = [(track_pts[j][1], track_pts[j][0]) for j in line_end_idxs]
-				line_colors = [(0, math.floor(255.0*(i + 1.0)/(track.track_num + 1.0)), 0) for i in line_end_idxs]
+				line_colors = [(0, numpy.floor(255.0*(i + 1.0)/(track.track_num + 1.0)), 0) for i in line_end_idxs]
 			elif track_pts.shape[0] == 1:
 				line_end_pts = [(track_pts[0][1], track_pts[0][0])]
 				line_begin_pts = []
@@ -208,11 +208,11 @@ class DenseTrajectory:
 		mbhx_integral, mbhy_integral = self.mbh_create.Compute(flow_warp)
 
 		# Extract features
-		hog_descs = [self.hog_create.Extract(hog_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
-		hof_descs = [self.hof_create.Extract(hof_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
+		hog_descs  = [self.hog_create.Extract(hog_integral,  track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
+		hof_descs  = [self.hof_create.Extract(hof_integral,  track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
 		mbhx_descs = [self.mbh_create.Extract(mbhx_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
 		mbhy_descs = [self.mbh_create.Extract(mbhy_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
-		trj_descs = [self.trj_create.Extract(flow_warp, track.points[track.track_num], image_scale) for track in track_list.tracks]
+		trj_descs  = [self.trj_create.Extract(flow_warp, track.points[track.track_num], image_scale) for track in track_list.tracks]
 		[track.ResistDescriptor(hog, hof, mbhx, mbhy, trj)
 			for (track, hog, hof, mbhx, mbhy, trj) in zip(track_list.tracks, hog_descs, hof_descs, mbhx_descs, mbhy_descs, trj_descs)]
 
@@ -233,7 +233,7 @@ class DenseTrajectory:
 			SPEED_STACK.TimerBegin('track_list.RemoveTrack')
 			enable_track_flg = ((track_pts[:,0] > 0) & (track_pts[:,0] < image_size[1] - 1) & (track_pts[:,1] > 0) & (track_pts[:,1] < image_size[0] - 1))
 			enable_track_pts = track_pts[enable_track_flg]
-			track_list.RemoveTrack(enable_track_flg)
+			track_list.RemoveTrack([not flg for flg in enable_track_flg])
 			SPEED_STACK.TimerEnd('track_list.RemoveTrack')
 
 			# Tracking points store
@@ -253,10 +253,37 @@ class DenseTrajectory:
 
 	
 	def __RemoveTracks(self, track_list):
-		continue_track_flg = [track.CheckEnable() for track in track_list.tracks]
-		track_list.RemoveTrack(continue_track_flg)
+		remove_track_flg = [track.CheckRemove() for track in track_list.tracks]
+		remove_tracks = track_list.RemoveTrack(remove_track_flg)
+		return remove_tracks
 
-		# TODO:IsValid、IsCameramotion、特徴量のnormalizeが必要
+	
+	def __ExtractTrackFeature(self, pyr_remove_tracks, pyr_scales):
+		def ExtractTrackFeature(remove_tracks, scale):
+			valid_track_flg = [track.CheckValidTrajectory(scale) for track in remove_tracks]
+			motion_track_flg = [track.CheckNotCameraMotion() for track in remove_tracks]
+
+			hog_feature  = [self.hog_create.Normalize(track.hog_descs)
+							for (track, valid_flg, motion_flg) in zip(remove_tracks, valid_track_flg, motion_track_flg) if valid_flg and motion_flg]
+			hof_feature  = [self.hof_create.Normalize(track.hof_descs)
+							for (track, valid_flg, motion_flg) in zip(remove_tracks, valid_track_flg, motion_track_flg) if valid_flg and motion_flg]
+			mbhx_feature = [self.mbh_create.Normalize(track.mbhx_descs)
+							for (track, valid_flg, motion_flg) in zip(remove_tracks, valid_track_flg, motion_track_flg) if valid_flg and motion_flg]
+			mbhy_feature = [self.mbh_create.Normalize(track.mbhy_descs)
+							for (track, valid_flg, motion_flg) in zip(remove_tracks, valid_track_flg, motion_track_flg) if valid_flg and motion_flg]
+			trj_feature  = [self.trj_create.Normalize(track.trj_descs)
+							for (track, valid_flg, motion_flg) in zip(remove_tracks, valid_track_flg, motion_track_flg) if valid_flg and motion_flg]
+
+			return hog_feature, hof_feature, mbhx_feature, mbhy_feature, trj_feature
+
+		pyr_features = [ExtractTrackFeature(remove_tracks, scale) for (remove_tracks, scale) in zip(pyr_remove_tracks, pyr_scales) if remove_tracks]
+
+		hog_features  = itertools.chain.from_iterable([features[0] for features in pyr_features])
+		hof_features  = itertools.chain.from_iterable([features[1] for features in pyr_features])
+		mbhx_features = itertools.chain.from_iterable([features[2] for features in pyr_features])
+		mbhy_features = itertools.chain.from_iterable([features[3] for features in pyr_features])
+		trj_features  = itertools.chain.from_iterable([features[4] for features in pyr_features])
+		return hog_features, hof_features, mbhx_features, mbhy_features, trj_features
 
 
 	def compute(self, vieo_path):
@@ -273,6 +300,12 @@ class DenseTrajectory:
 		print('VideoPath:{}'.format(vieo_path))
 		print('width:{}, height:{}, fps:{}, frame:{}'.format(width, height, frame_rate, frame_size))
 		
+		hog_feature_store  = []
+		hof_feature_store  = []
+		mbhx_feature_store = []
+		mbhy_feature_store = []
+		trj_feature_store  = []
+		
 		# Preparation Video Writer
 		if self.TRJ_PARAM.DRAW_TRACK_FLG:
 			fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
@@ -284,11 +317,11 @@ class DenseTrajectory:
 															   self.PYRAMID_PARAM.PYRAMID_SCALE_NUM)
 		
 		# Create track list
-		pyr_track_list = [TrackList(self.TRJ_PARAM.TRACK_LENGTH, self.hog_create.DIM,
-																 self.hof_create.DIM,
-																 self.mbh_create.DIM,
-																 self.mbh_create.DIM,
-																 self.trj_create.DIM) for idx in range(pyr_img_creator.image_num)]
+		pyr_track_list = [TrackList(self.hog_create.DIM,
+									self.hof_create.DIM,
+									self.mbh_create.DIM,
+									self.mbh_create.DIM,
+									self.trj_create.DIM) for idx in range(pyr_img_creator.image_num)]
 
 		SPEED_STACK.TimerBegin('Process All')
 		# ----------------------------------------------------------------------------------------------------
@@ -351,12 +384,12 @@ class DenseTrajectory:
 			[self.__ExtractFeatureDescs(prev_gray_frame, flow_warp, track_list, image_scale)
 				for (prev_gray_frame, flow_warp, track_list, image_scale) in zip(curr_pyr_gray_frame, pyr_flow_warp, pyr_track_list, pyr_img_creator.image_scales)]			
 			SPEED_STACK.TimerEnd('__ExtractFeatureDescs')
-
+			
 			# Add track points
 			SPEED_STACK.TimerBegin('__AddTrackPoints')
 			[self.__AddTrackPoints(flow, track_list, image_size) for (flow, track_list, image_size) in zip(pyr_flow, pyr_track_list, pyr_img_creator.image_sizes)]
 			SPEED_STACK.TimerEnd('__AddTrackPoints')
-
+			
 			# Draw Tracking points
 			SPEED_STACK.TimerBegin('__DrawTrack')
 			if self.TRJ_PARAM.DRAW_TRACK_FLG:
@@ -365,7 +398,15 @@ class DenseTrajectory:
 			SPEED_STACK.TimerEnd('__DrawTrack')
 			
 			# Remove tracking ended track datas
-			[self.__RemoveTracks(track_list) for track_list in pyr_track_list]
+			pyr_remove_tracks = [self.__RemoveTracks(track_list) for track_list in pyr_track_list]
+
+			# Extract tracking ended track features
+			hog_features, hof_features, mbhx_features, mbhy_features, trj_features = self.__ExtractTrackFeature(pyr_remove_tracks, pyr_img_creator.image_scales)
+			hog_feature_store.extend(hog_features)
+			hof_feature_store.extend(hof_features)
+			mbhx_feature_store.extend(mbhx_features)
+			mbhy_feature_store.extend(mbhy_features)
+			trj_feature_store.extend(trj_features)
 
 			# Regist new points in track data
 			[self.__ResistTracks(prev_gray_frame, track_list) for (prev_gray_frame, track_list) in zip(prev_pyr_gray_frame, pyr_track_list)]
@@ -398,3 +439,12 @@ class DenseTrajectory:
 				data = measure_time[1]
 				print(key, data, data/len(capture_frames))
 				writer.writerow([key, data, data/len(capture_frames)])
+		
+
+		hog_feature_store  = numpy.array(hog_feature_store)
+		hof_feature_store  = numpy.array(hof_feature_store)
+		mbhx_feature_store = numpy.array(mbhx_feature_store)
+		mbhy_feature_store = numpy.array(mbhy_feature_store)
+		trj_feature_store  = numpy.array(trj_feature_store)
+
+		return hog_feature_store, hof_feature_store, mbhx_feature_store, mbhy_feature_store, trj_feature_store

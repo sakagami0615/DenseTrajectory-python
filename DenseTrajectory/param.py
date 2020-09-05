@@ -12,6 +12,10 @@ class TrajectoryParameter:
 	TRACK_LENGTH = 15
 	DRAW_TRACK_FLG = True
 
+	REJECT_MIN_STD = numpy.sqrt(3)
+	REJECT_MAX_STD = 50
+	REJECT_MAX_DIST = 20
+
 
 class FlowKeypointParameter:
 	MAX_COUNT = 1000

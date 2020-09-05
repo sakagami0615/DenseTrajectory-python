@@ -1,18 +1,18 @@
 import numpy
-
+from .param import TrajectoryParameter
 
 class Track:
 
-	def __init__(self, init_point, track_length, hog_dim, hof_dim, mbhx_dim, mbhy_dim, trj_dim):
+	def __init__(self, init_point, hog_dim, hof_dim, mbhx_dim, mbhy_dim, trj_dim):
+		self.PARAM = TrajectoryParameter()
 		self.track_num = 0
-		self.track_length = track_length
-		self.hog_descs = numpy.empty((track_length, hog_dim))
-		self.hof_descs = numpy.empty((track_length, hof_dim))
-		self.mbhx_descs = numpy.empty((track_length, mbhx_dim))
-		self.mbhy_descs = numpy.empty((track_length, mbhy_dim))
-		self.trj_descs = numpy.empty((track_length, trj_dim))
+		self.hog_descs = numpy.empty((self.PARAM.TRACK_LENGTH, hog_dim))
+		self.hof_descs = numpy.empty((self.PARAM.TRACK_LENGTH, hof_dim))
+		self.mbhx_descs = numpy.empty((self.PARAM.TRACK_LENGTH, mbhx_dim))
+		self.mbhy_descs = numpy.empty((self.PARAM.TRACK_LENGTH, mbhy_dim))
+		self.trj_descs = numpy.empty((self.PARAM.TRACK_LENGTH, trj_dim))
 
-		self.points = numpy.empty((track_length + 1, 2))
+		self.points = numpy.empty((self.PARAM.TRACK_LENGTH + 1, 2))
 		self.points[self.track_num,:] = init_point
 	
 	
@@ -29,18 +29,48 @@ class Track:
 		self.trj_descs[self.track_num,:] = trj_desc
 	
 	
-	def CheckEnable(self):
-		if self.track_length > self.track_num:
-			return True
-		return False
+	def CheckRemove(self):
+		if self.PARAM.TRACK_LENGTH > self.track_num:
+			return False
+		return True
+	
+
+	def CheckValidTrajectory(self, scale):
+		points_x = self.points[:,0]/scale
+		points_y = self.points[:,1]/scale
+
+		std_x = numpy.std(points_x)
+		std_y = numpy.std(points_y)
+
+		# Remove static trajectory
+		if (std_x < self.PARAM.REJECT_MIN_STD) and (std_y < self.PARAM.REJECT_MIN_STD):
+			return False
+		# Remove random trajectory
+		if (std_x > self.PARAM.REJECT_MAX_STD) or (std_y > self.PARAM.REJECT_MAX_STD):
+			return False
+		
+		mag = numpy.sqrt(points_x*points_x + points_y*points_y)
+		max_mag = numpy.amax(mag)
+		sum_mag = numpy.sum(mag)
+
+		if (max_mag > self.PARAM.REJECT_MAX_DIST) and (max_mag > sum_mag*0.7):
+			return False
+
+		return True
+	
+	
+	def CheckNotCameraMotion(self):
+		mag = numpy.sqrt(self.trj_descs[:,0]*self.trj_descs[:,0] + self.trj_descs[:,1]*self.trj_descs[:,1])
+		if numpy.amax(mag) <= 1:
+			return False
+		return True
 
 
 
 class TrackList:
 	
-	def __init__(self, track_length, hog_dim, hof_dim, mbhx_dim, mbhy_dim, trj_dim):
+	def __init__(self, hog_dim, hof_dim, mbhx_dim, mbhy_dim, trj_dim):
 		self.tracks = []
-		self.track_length = track_length
 		self.hog_dim = hog_dim
 		self.hof_dim = hof_dim
 		self.mbhx_dim = mbhx_dim
@@ -49,11 +79,15 @@ class TrackList:
 	
 	
 	def ResistTrack(self, point):
-		track = Track(point, self.track_length, self.hog_dim, self.hof_dim, self.mbhx_dim, self.mbhy_dim, self.trj_dim)
+		track = Track(point, self.hog_dim, self.hof_dim, self.mbhx_dim, self.mbhy_dim, self.trj_dim)
 		self.tracks.append(track)
+		
 	
-	
-	def RemoveTrack(self, enable_flg):
+	def RemoveTrack(self, remove_flg):
 		self.tracks = numpy.array(self.tracks)
-		self.tracks = self.tracks[enable_flg]
+		remove_tracks = numpy.copy(self.tracks[remove_flg])
+		remove_tracks = remove_tracks.tolist()
+		self.tracks = self.tracks[[not flg for flg in remove_flg]]
 		self.tracks = self.tracks.tolist()
+		
+		return remove_tracks

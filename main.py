@@ -9,4 +9,10 @@ if __name__ == '__main__':
 
 	extractor = DenseTrajectory()
 
-	extractor.compute(VIDEO_PATH)
+	hog_feature, hof_feature, mbhx_feature, mbhy_feature, trj_feature = extractor.compute(VIDEO_PATH)
+
+	print(hog_feature.shape)
+	print(hof_feature.shape)
+	print(mbhx_feature.shape)
+	print(mbhy_feature.shape)
+	print(trj_feature.shape)
