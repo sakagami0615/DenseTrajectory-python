@@ -5,20 +5,13 @@ import numpy
 class OpticalflowWrapper:
 	
 	def __init__(self):
-		"""
-		self.pyr_scale = 0
-		self.levels = 1
-		self.winsize = 10
-		self.iterations = 2
-		self.poly_n = 7
-		self.poly_sigma = 1.5
-		"""
 		self.pyr_scale = 0.5
 		self.levels = 3
 		self.winsize = 15
 		self.iterations = 3
 		self.poly_n = 5
 		self.poly_sigma = 1.2
+	
 	
 	def ExtractFlow(self, prev, curr):
 		flow = cv2.calcOpticalFlowFarneback(prev, curr, None,
@@ -30,6 +23,7 @@ class OpticalflowWrapper:
 											self.poly_sigma,
 											cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
 		return flow
+	
 	
 	def DrawFlow(self, base_img, flow):
 		hsv = numpy.zeros_like(base_img)

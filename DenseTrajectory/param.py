@@ -7,23 +7,28 @@ class DenseSampleParameter:
 	EIGEN_BLICK_SIZE = 3
 	EIGEN_APERTURE_SIZE = 3
 
+
 class TrajectoryParameter:
 	TRACK_LENGTH = 15
 	DRAW_TRACK_FLG = True
+
 
 class FlowKeypointParameter:
 	MAX_COUNT = 1000
 	QUALITY = 0.01
 	MIN_DIST = 10
 
+
 class SurfParameter:
 	HESSIAN_THRESH = 200
 	MATCH_MASK_THRESH = 25
-	
+
+
 class PyramidImageParameter:
 	MIN_SIZE = 32
 	PYRAMID_SCALE_STRIDE = 1/numpy.sqrt(2)
 	PYRAMID_SCALE_NUM = 8
+
 
 class HomographyParameter:
 	KEYPOINT_THRESH = 50

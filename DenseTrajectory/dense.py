@@ -21,7 +21,7 @@ SPEED_STACK = SpeedStack()
 
 
 class DenseTrajectory:
-
+	
 	def __init__(self):
 		# Create parameter object
 		self.DENSE_SAMPLE_PARAM = param.DenseSampleParameter()
@@ -44,7 +44,8 @@ class DenseTrajectory:
 
 	def __DrawTrack(self, frame, track_list, image_scale):
 		def GetLineData(track, image_scale):
-			track_pts = numpy.copy(track.points[:track.track_num + 1]*image_scale).astype(numpy.int64)
+			track_pts = (track.points[:track.track_num + 1]*image_scale).astype(numpy.int64)
+
 			if track_pts.shape[0] > 1:
 				line_begin_idxs = numpy.array(range(track_pts.shape[0] - 1)).tolist()
 				line_end_idxs = (numpy.array(range(track_pts.shape[0] - 1)) + 1).tolist()
@@ -102,7 +103,6 @@ class DenseTrajectory:
 			SPEED_STACK.TimerBegin('__DenseSample:do not match previous')
 			prev_point_list = prev_points.tolist()
 			enable_point_flg = [True if prev_point_list.count(a) == 0 else False for a in all_points.tolist()]
-			#enable_point_flg = [True if prev_point_list.count(a) > 0 else False for a in all_points.tolist()]
 			enable_points = all_points[enable_point_flg]*self.DENSE_SAMPLE_PARAM.MIN_DIST + offset
 			SPEED_STACK.TimerEnd('__DenseSample:do not match previous')
 		else:
@@ -201,6 +201,22 @@ class DenseTrajectory:
 		return union_prev_points, union_curr_points
 	
 
+	def __ExtractFeatureDescs(self, prev_gray_frame, flow_warp, track_list, image_scale):
+		# Compute feature description
+		hog_integral = self.hog_create.Compute(prev_gray_frame)
+		hof_integral = self.hof_create.Compute(flow_warp)
+		mbhx_integral, mbhy_integral = self.mbh_create.Compute(flow_warp)
+
+		# Extract features
+		hog_descs = [self.hog_create.Extract(hog_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
+		hof_descs = [self.hof_create.Extract(hof_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
+		mbhx_descs = [self.mbh_create.Extract(mbhx_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
+		mbhy_descs = [self.mbh_create.Extract(mbhy_integral, track.points[track.track_num], prev_gray_frame.shape) for track in track_list.tracks]
+		trj_descs = [self.trj_create.Extract(flow_warp, track.points[track.track_num], image_scale) for track in track_list.tracks]
+		[track.ResistDescriptor(hog, hof, mbhx, mbhy, trj)
+			for (track, hog, hof, mbhx, mbhy, trj) in zip(track_list.tracks, hog_descs, hof_descs, mbhx_descs, mbhy_descs, trj_descs)]
+
+	
 	def __AddTrackPoints(self, flow, track_list, image_size):
 		if track_list.tracks:
 			prev_pts = numpy.array([track.points[track.track_num,:] for track in track_list.tracks])
@@ -225,6 +241,22 @@ class DenseTrajectory:
 			[track.AddPoint(enable_track_pts[idx,:]) for (idx, track) in enumerate(track_list.tracks)]
 			SPEED_STACK.TimerEnd('track.AddPoint')
 	
+
+	def __ResistTracks(self, prev_gray_frame, track_list):
+		SPEED_STACK.TimerBegin('track_list.ResistTrack')
+		track_pts = numpy.array([track.points[track.track_num] for track in track_list.tracks])
+		SPEED_STACK.TimerEnd('track_list.ResistTrack')
+		dense_pts = self.__DenseSample(prev_gray_frame, track_pts)
+		SPEED_STACK.TimerBegin('track_list.ResistTrack')
+		[track_list.ResistTrack(dense_pts[idx]) for idx in range(dense_pts.shape[0])]
+		SPEED_STACK.TimerEnd('track_list.ResistTrack')
+
+	
+	def __RemoveTracks(self, track_list):
+		continue_track_flg = [track.CheckEnable() for track in track_list.tracks]
+		track_list.RemoveTrack(continue_track_flg)
+
+		# TODO:IsValid、IsCameramotion、特徴量のnormalizeが必要
 
 
 	def compute(self, vieo_path):
@@ -263,6 +295,7 @@ class DenseTrajectory:
 		# Init Process Begin
 		# ----------------------------------------------------------------------------------------------------
 		#TODO capture_frames = capture_frames[:20]
+		#capture_frames = capture_frames[63:]
 		progress = tqdm(total=len(capture_frames))
 		# Grayscale Conversion
 		gray_frame = cv2.cvtColor(capture_frames[0], cv2.COLOR_BGR2GRAY)
@@ -282,9 +315,7 @@ class DenseTrajectory:
 		# ----------------------------------------------------------------------------------------------------
 		# Compute Process Begin
 		# ----------------------------------------------------------------------------------------------------
-		frame_cnt = 0
 		for capture_frame in capture_frames[1:]:
-			frame_cnt = frame_cnt + 1
 			# Grayscale Conversion
 			gray_frame = cv2.cvtColor(capture_frame, cv2.COLOR_BGR2GRAY)
 			# Pyramid Image Generation
@@ -315,55 +346,29 @@ class DenseTrajectory:
 			pyr_flow_warp = [self.flow_create.ExtractFlow(prev, curr) for (prev, curr) in zip(prev_pyr_gray_warp_frame, curr_pyr_gray_frame)]
 			SPEED_STACK.TimerEnd('flow_create.ExtractFlow')
 			
+			# Extract feature descriptor
+			SPEED_STACK.TimerBegin('__ExtractFeatureDescs')
+			[self.__ExtractFeatureDescs(prev_gray_frame, flow_warp, track_list, image_scale)
+				for (prev_gray_frame, flow_warp, track_list, image_scale) in zip(curr_pyr_gray_frame, pyr_flow_warp, pyr_track_list, pyr_img_creator.image_scales)]			
+			SPEED_STACK.TimerEnd('__ExtractFeatureDescs')
+
 			# Add track points
-			[AddTrackPoints(flow, track_list, image_size) for (flow, track_list, image_size) in zip(pyr_flow, pyr_track_list, pyr_img_creator.image_sizes)]
-					
+			SPEED_STACK.TimerBegin('__AddTrackPoints')
+			[self.__AddTrackPoints(flow, track_list, image_size) for (flow, track_list, image_size) in zip(pyr_flow, pyr_track_list, pyr_img_creator.image_sizes)]
+			SPEED_STACK.TimerEnd('__AddTrackPoints')
+
 			# Draw Tracking points
 			SPEED_STACK.TimerBegin('__DrawTrack')
 			if self.TRJ_PARAM.DRAW_TRACK_FLG:
 				self.__DrawTrack(capture_frame, pyr_track_list[0], pyr_img_creator.image_scales[0])
 				writer.write(capture_frame)
 			SPEED_STACK.TimerEnd('__DrawTrack')
-
-			# Extract feature descriptor
-			def ExtractFeatureDescs(prev_gray_frame, flow_warp, track_list, image_scale):
-				# Compute feature description
-				hog_integral = self.hog_create.Compute(prev_gray_frame)
-				hof_integral = self.hof_create.Compute(flow_warp)
-				mbhx_integral, mbhy_integral = self.mbh_create.Compute(flow_warp)
-
-				# Extract features
-				hog_descs = [self.hog_create.Extract(hog_integral, track.points[track.track_num]) for track in track_list.tracks]
-				hof_descs = [self.hof_create.Extract(hof_integral, track.points[track.track_num]) for track in track_list.tracks]
-				mbhx_descs = [self.mbh_create.Extract(mbhx_integral, track.points[track.track_num]) for track in track_list.tracks]
-				mbhy_descs = [self.mbh_create.Extract(mbhy_integral, track.points[track.track_num]) for track in track_list.tracks]
-				trj_descs = [self.trj_create.Extract(flow_warp, track.points[track.track_num], image_scale) for track in track_list.tracks]
-				[track.ResistDescriptor(hog, hof, mbhx, mbhy, trj)
-					for (track, hog, hof, mbhx, mbhy, trj) in zip(track_list.tracks, hog_descs, hof_descs, mbhx_descs, mbhy_descs, trj_descs)]
-				
-				# Update tracks (Remove tracked data)
-				continue_track_flg = [track.CheckEnable() for track in track_list.tracks]
-				track_list.RemoveTrack(continue_track_flg)
-
-				# TODO:下記に特徴抽出したデータの保管処理を記載する
-				return None, None, None, None, None
-
-			descs = [ExtractFeatureDescs(prev_gray_frame, flow_warp, track_list, image_scale)
-				for (prev_gray_frame, flow_warp, track_list, image_scale) in zip(curr_pyr_gray_frame, pyr_flow_warp, pyr_track_list, pyr_img_creator.image_scales)]
 			
-			#xx = filter(lambda a:a is not None, l)
-			#list(xx)
+			# Remove tracking ended track datas
+			[self.__RemoveTracks(track_list) for track_list in pyr_track_list]
 
-			# store new feature points
-			SPEED_STACK.TimerBegin('track_list.ResistTrack')
-			pyr_track_pts = [numpy.array([track.points[track.track_num] for track in track_list.tracks]) for track_list in pyr_track_list]
-			SPEED_STACK.TimerEnd('track_list.ResistTrack')
-			
-			pyr_dense_pts = [self.__DenseSample(gray_frame, track_pts) for (gray_frame, track_pts) in zip(prev_pyr_gray_frame, pyr_track_pts)]
-			SPEED_STACK.TimerBegin('track_list.ResistTrack')
-			[track_list.ResistTrack(dense_pts[idx]) for (track_list, dense_pts) in zip(pyr_track_list, pyr_dense_pts) for idx in range(dense_pts.shape[0])]
-			SPEED_STACK.TimerEnd('track_list.ResistTrack')
-
+			# Regist new points in track data
+			[self.__ResistTracks(prev_gray_frame, track_list) for (prev_gray_frame, track_list) in zip(prev_pyr_gray_frame, pyr_track_list)]
 
 			def keypoints_deepcopy(f):
 				return [cv2.KeyPoint(x = k.pt[0], y = k.pt[1], 
@@ -371,7 +376,7 @@ class DenseTrajectory:
 						_response = k.response, _octave = k.octave, 
 						_class_id = k.class_id) for k in f]
 
-			# Update
+			# Update current to previous
 			prev_pyr_gray_frame = copy.deepcopy(curr_pyr_gray_frame)
 			#prev_surf_kypts = curr_surf_kypts
 			prev_surf_kypts = keypoints_deepcopy(curr_surf_kypts)
