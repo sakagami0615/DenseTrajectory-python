@@ -11,6 +11,7 @@ services:
       GRANT_SUDO: "yes"
     volumes:
        - "./:/home/jovyan"
+       - "E:/datasets/KTH:/home/jovyan/dataset/KTH"		# 各自KTHデータセットをマウントできるように修正する必要あり
     privileged: true
     ports:
       - "8888:8888"
