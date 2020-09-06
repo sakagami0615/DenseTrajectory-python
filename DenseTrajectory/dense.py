@@ -26,10 +26,8 @@ class DenseTrajectory:
 		self.FLOW_KYPT_PARAM = param.FlowKeypointParameter()
 		self.HOMO_PARAM = param.HomographyParameter()
 
-		# TODO:xfeatures2dが使用できないため、Dockerfileを見直す（暫定でSIFTを代用）
 		# Create frature object
-		#self.surf_create = cv2.xfeatures2d.SURF_create(self.HESSIAN_THRESH)
-		self.surf_create = cv2.SIFT_create()
+		self.surf_create = cv2.xfeatures2d.SURF_create(self.SURF_PARAM.HESSIAN_THRESH)
 		self.flow_create = OpticalflowWrapper()
 		self.hog_create = HogFeature()
 		self.hof_create = HofFeature()
@@ -251,7 +249,7 @@ class DenseTrajectory:
 		return hog_features, hof_features, mbhx_features, mbhy_features, trj_features
 
 
-	def compute(self, vieo_path):
+	def compute(self, vieo_path, draw_path=None):
 		capture = cv2.VideoCapture(vieo_path)
 		if not capture.isOpened():
 			error_message = '{} is not exist.'.format(vieo_path)
@@ -271,14 +269,11 @@ class DenseTrajectory:
 		mbhy_feature_store = []
 		trj_feature_store  = []
 		
-		#TODO
-		"""
 		# Preparation Video Writer
-		if self.TRJ_PARAM.DRAW_TRACK_FLG:
+		if not draw_path is None:
 			fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-			writer = cv2.VideoWriter('ResultData/out.mp4', fourcc, frame_rate, (width, height))
-		"""
-
+			writer = cv2.VideoWriter(draw_path, fourcc, frame_rate, (width, height))
+		
 		# Create Pyramid Image Generator
 		pyr_img_creator = PyramidImageCreator((height, width), self.PYRAMID_PARAM.MIN_SIZE,
 															   self.PYRAMID_PARAM.PYRAMID_SCALE_STRIDE,
@@ -350,14 +345,9 @@ class DenseTrajectory:
 			[self.__AddTrackPoints(flow, track_list, image_size) for (flow, track_list, image_size) in zip(pyr_flow, pyr_track_list, pyr_img_creator.image_sizes)]
 			
 			# Draw Tracking points
-			"""
-			if self.TRJ_PARAM.DRAW_TRACK_FLG:
+			if not draw_path is None:
 				self.__DrawTrack(capture_frame, pyr_track_list[0], pyr_img_creator.image_scales[0])
-				#TODO
-				# writer.write(capture_frame)
-				cv2.imshow('DrawTrack', capture_frame)
-				cv2.waitKey(1)
-			"""
+				writer.write(capture_frame)
 			
 			# Remove tracking ended track datas
 			pyr_remove_tracks = [self.__RemoveTracks(track_list) for track_list in pyr_track_list]

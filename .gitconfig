@@ -14,4 +14,4 @@
 	cmd = "'' "
 	trustExitCode = true
 [credential]
-	helper = "!f() { /home/jovyan/.vscode-server/bin/a0479759d6e9ea56afa657e454193f72aef85bd0/node /tmp/vscode-remote-containers-884c6203b5232a50eaa9ec736af61315a5d72b85.js $*; }; f"
+	helper = "!f() { /home/jovyan/.vscode-server/bin/a0479759d6e9ea56afa657e454193f72aef85bd0/node /tmp/vscode-remote-containers-ca1ba6b005e66fc77171a6d2e0799f82bb45b179.js $*; }; f"

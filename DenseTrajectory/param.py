@@ -10,7 +10,6 @@ class DenseSampleParameter:
 
 class TrajectoryParameter:
 	TRACK_LENGTH = 15
-	DRAW_TRACK_FLG = True
 
 	REJECT_MIN_STD = numpy.sqrt(3)
 	REJECT_MAX_STD = 50
