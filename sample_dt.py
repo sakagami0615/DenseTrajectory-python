@@ -28,7 +28,7 @@ def ExtractDenseTrajectoryFeatures(file_paths, save_folder_path):
 	save_feature_path = '{}/{}_{}.csv'
 	save_video_path = '{}/{}.avi'
 
-	for (idx, file_path) in enumerate(file_paths[1:2]):
+	for (idx, file_path) in enumerate(file_paths):
 		print('[process : {}/{}]'.format(idx + 1, len(file_paths)))
 		file_name = os.path.splitext(os.path.basename(file_path))[0]
 		

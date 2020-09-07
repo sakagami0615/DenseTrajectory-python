@@ -35,6 +35,25 @@ class DenseTrajectory:
 		self.trj_create = TrajectoryFeature()
 
 
+	def __GetCaptureFrames(self, vieo_path):
+		capture = cv2.VideoCapture(vieo_path)
+		if not capture.isOpened():
+			error_message = '{} is not exist.'.format(vieo_path)
+			raise Exception('{}:{}():{}'.format(os.path.basename(__file__), sys._getframe().f_code.co_name, error_message))
+		
+		capture_frames = []
+		is_capture = True
+		while is_capture:
+			is_capture, frame = capture.read()
+			if is_capture:
+				capture_frames.append(frame)
+
+		frame_rate = int(capture.get(cv2.CAP_PROP_FPS))
+		frame_size = (capture_frames[0].shape[1], capture_frames[0].shape[0])
+		frame_count = len(capture_frames)
+		return capture_frames, frame_rate, frame_size, frame_count
+	
+
 	def __DrawTrack(self, frame, track_list, image_scale):
 		def GetLineData(track, image_scale):
 			track_pts = (track.points[:track.track_num + 1]*image_scale).astype(numpy.int64)
@@ -128,14 +147,20 @@ class DenseTrajectory:
 
 
 	def __KeypointMatching(self, prev_kypts, prev_descs, curr_kypts, curr_descs):
-		# Keypoint matching with Brute-force
-		mask = self.__windowedMatchingMask(prev_kypts, curr_kypts, self.SURF_PARAM.MATCH_MASK_THRESH, self.SURF_PARAM.MATCH_MASK_THRESH)
-		matcher = cv2.BFMatcher(cv2.NORM_L2)
-		matches = matcher.match(curr_descs, prev_descs, mask)
+		if (len(prev_kypts) > 0) and (len(curr_kypts) > 0):
+			# Keypoint matching with Brute-force
+			mask = self.__windowedMatchingMask(prev_kypts, curr_kypts, self.SURF_PARAM.MATCH_MASK_THRESH, self.SURF_PARAM.MATCH_MASK_THRESH)
+			matcher = cv2.BFMatcher(cv2.NORM_L2)
+			matches = matcher.match(curr_descs, prev_descs, mask)
+			
+			# Convert keypoint data to point data
+			prev_surf_pts = numpy.array([[prev_kypts[match.trainIdx].pt] for match in matches])
+			curr_surf_pts = numpy.array([[curr_kypts[match.queryIdx].pt] for match in matches])
+		else:
+			# Disable surf keypoints process
+			prev_surf_pts = numpy.array([])
+			curr_surf_pts = numpy.array([])
 		
-		# Convert keypoint data to point data
-		prev_surf_pts = numpy.array([[prev_kypts[match.trainIdx].pt] for match in matches])
-		curr_surf_pts = numpy.array([[curr_kypts[match.queryIdx].pt] for match in matches])
 		return prev_surf_pts, curr_surf_pts
 
 
@@ -166,11 +191,46 @@ class DenseTrajectory:
 
 
 	def __UnionPoint(self, prev_points_1, curr_points_1, prev_points_2, curr_points_2):
-		# Combine feature points vertically
-		union_prev_points = numpy.vstack([prev_points_1, prev_points_2])
-		union_curr_points = numpy.vstack([curr_points_1, curr_points_2])
+		prev_points_1_enable = (prev_points_1 != numpy.array([]))
+		prev_points_2_enable = (prev_points_2 != numpy.array([]))
+		curr_points_1_enable = (curr_points_1 != numpy.array([]))
+		curr_points_2_enable = (curr_points_2 != numpy.array([]))
+
+		# Combine prev feature points vertically
+		if (not prev_points_1_enable) and (not prev_points_2_enable):
+			union_prev_points = None
+		elif prev_points_1_enable and (not prev_points_2_enable):
+			union_prev_points = numpy.copy(prev_points_1)
+		elif (not prev_points_1_enable) and prev_points_2_enable:
+			union_prev_points = numpy.copy(prev_points_2)
+		else:
+			union_prev_points = numpy.vstack([prev_points_1, prev_points_2])
+
+		# Combine curr feature points vertically
+		if (not curr_points_1_enable) and (not curr_points_2_enable):
+			union_curr_points = None
+		elif curr_points_1_enable and (not curr_points_2_enable):
+			union_curr_points = numpy.copy(curr_points_1)
+		elif (not curr_points_1_enable) and curr_points_2_enable:
+			union_curr_points = numpy.copy(curr_points_2)
+		else:
+			union_curr_points = numpy.vstack([curr_points_1, curr_points_2])
+		
 		return union_prev_points, union_curr_points
 	
+
+	def __PresumeHomographyMatrix(self, prev_pts, curr_pts):
+		prev_pts_flg = (not prev_pts is None) and (prev_pts.shape[0] > self.HOMO_PARAM.KEYPOINT_THRESH)
+		curr_pts_flg = (not curr_pts is None) and (curr_pts.shape[0] > self.HOMO_PARAM.KEYPOINT_THRESH)
+		
+		if prev_pts_flg and curr_pts_flg:
+			M, match_mask = cv2.findHomography(prev_pts, curr_pts, cv2.RANSAC, self.HOMO_PARAM.RANSAC_REPROJECT_ERROR_THRESH)
+			if numpy.count_nonzero(match_mask) > self.HOMO_PARAM.MATCH_MASK_THRESH:
+				H = numpy.copy(M)
+				return H
+
+		H = numpy.eye(3)
+		return H
 
 	def __ExtractFeatureDescs(self, prev_gray_frame, flow_warp, track_list, image_scale):
 		# Compute feature description
@@ -198,7 +258,10 @@ class DenseTrajectory:
 			index[:,0] = numpy.clip(index[:,0], None, image_size[1] - 1)
 			index[:,1] = numpy.clip(index[:,1], 0, None)
 			index[:,1] = numpy.clip(index[:,1], None, image_size[0] - 1)
-			track_pts = prev_pts + flow[index[:,0], index[:,1]]
+			flow_pts = flow[index[:,0], index[:,1]]
+			flow_pts = numpy.vstack((flow_pts[:,1], flow_pts[:,0])).transpose()
+			track_pts = prev_pts + flow_pts
+			
 			
 			# Remove points outside the range of frame
 			enable_track_flg = ((track_pts[:,0] > 0) & (track_pts[:,0] < image_size[1] - 1) & (track_pts[:,1] > 0) & (track_pts[:,1] < image_size[0] - 1))
@@ -250,18 +313,9 @@ class DenseTrajectory:
 
 
 	def compute(self, vieo_path, draw_path=None):
-		capture = cv2.VideoCapture(vieo_path)
-		if not capture.isOpened():
-			error_message = '{} is not exist.'.format(vieo_path)
-			raise Exception('{}:{}():{}'.format(os.path.basename(__file__), sys._getframe().f_code.co_name, error_message))
-
-		width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-		height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-		frame_rate = int(capture.get(cv2.CAP_PROP_FPS))
-		frame_size = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-		capture_frames = [capture.read()[1] for a in range(frame_size)]
+		capture_frames, frame_rate, frame_size, frame_count = self.__GetCaptureFrames(vieo_path)
 		print('VideoPath:{}'.format(vieo_path))
-		print('width:{}, height:{}, fps:{}, frame:{}'.format(width, height, frame_rate, frame_size))
+		print('size:{}, fps:{}, frame:{}'.format(frame_size, frame_rate, frame_count))
 		
 		hog_feature_store  = []
 		hof_feature_store  = []
@@ -272,12 +326,12 @@ class DenseTrajectory:
 		# Preparation Video Writer
 		if not draw_path is None:
 			fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-			writer = cv2.VideoWriter(draw_path, fourcc, frame_rate, (width, height))
+			writer = cv2.VideoWriter(draw_path, fourcc, frame_rate, frame_size)
 		
 		# Create Pyramid Image Generator
-		pyr_img_creator = PyramidImageCreator((height, width), self.PYRAMID_PARAM.MIN_SIZE,
-															   self.PYRAMID_PARAM.PYRAMID_SCALE_STRIDE,
-															   self.PYRAMID_PARAM.PYRAMID_SCALE_NUM)
+		pyr_img_creator = PyramidImageCreator((frame_size[1], frame_size[0]), self.PYRAMID_PARAM.MIN_SIZE,
+															   				  self.PYRAMID_PARAM.PYRAMID_SCALE_STRIDE,
+															   				  self.PYRAMID_PARAM.PYRAMID_SCALE_NUM)
 		
 		# Create track list
 		pyr_track_list = [TrackList(self.hog_create.DIM,
@@ -318,18 +372,14 @@ class DenseTrajectory:
 			# SURF feature matching
 			prev_surf_pts, curr_surf_pts = self.__KeypointMatching(prev_surf_kypts, prev_surf_descs, curr_surf_kypts, curr_surf_descs)
 			# Compute Optical Flow
-			pyr_flow = [self.flow_create.ExtractFlow(curr_gray_frame, prev_gray_frame) for (curr_gray_frame, prev_gray_frame) in zip(curr_pyr_gray_frame, prev_pyr_gray_frame)]
+			pyr_flow = [self.flow_create.ExtractFlow(prev_gray_frame, curr_gray_frame) for (prev_gray_frame, curr_gray_frame) in zip(prev_pyr_gray_frame, curr_pyr_gray_frame)]
 			# Find Flow keypoints
 			prev_flow_pts, curr_flow_pts = self.__DetectFlowKeypoint(prev_pyr_gray_frame[0], pyr_flow[0])
 			# SURF and Flow Point combination
 			prev_pts, curr_pts = self.__UnionPoint(prev_surf_pts, curr_surf_pts, prev_flow_pts, curr_flow_pts)
 			
 			# Calculation homography matrix
-			H = numpy.eye(3)
-			if (not curr_pts is None) and (curr_pts.shape[0] > self.HOMO_PARAM.KEYPOINT_THRESH):
-				M, match_mask = cv2.findHomography(prev_pts, curr_pts, cv2.RANSAC, self.HOMO_PARAM.RANSAC_REPROJECT_ERROR_THRESH)
-				if numpy.count_nonzero(match_mask) > self.HOMO_PARAM.MATCH_MASK_THRESH:
-					H = numpy.copy(M)
+			H = self.__PresumeHomographyMatrix(curr_pts, prev_pts)
 		
 			# WarpPerspective
 			prev_pyr_gray_warp_frame = [cv2.warpPerspective(a, numpy.linalg.inv(H), (a.shape[1], a.shape[0])) for a in prev_pyr_gray_frame]
